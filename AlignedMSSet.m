@@ -10,6 +10,7 @@ classdef AlignedMSSet < handle
     
     properties (Access = private)
         capacity,
+        eleCounter,
         attriMap,
         attriCell,
         counter    
@@ -25,7 +26,7 @@ classdef AlignedMSSet < handle
                 accuarcy = 0.001;
             end
             if ~exist('threshold','var')
-                threshold = 0.01;
+                threshold = 0.001;
             end
             if ~exist('combineMethod','var')
                 combineMethod = 'max';
@@ -83,6 +84,95 @@ classdef AlignedMSSet < handle
             end
         end
         
+        function res = toSC(obj,options)
+            if strcmp(obj.sourceID(1:2),'00')
+                if ~and(isfield(options,'r1'),isfield(options,'r2'))                    
+                    error('r1 and r2 should be provided');
+                end
+                if ~isfield(options,'method')
+                    options.method = 'max';
+                end
+                res = obj.thermoSC(options);
+            end
+            
+        end
+        
+        function newMZ = featureSelectByOcc(obj,occThres)
+            occurence = full(sum(obj.dataMat>0));
+            if ~exist('occThres','var')
+                histogram(occurence,'BinWidth',20);
+                answer = inputdlg('threshold','',1);
+                if isempty(answer) || isnan(str2double(answer{1}))
+                    newMZ = []; 
+                    return;
+                else
+                    occThres = str2double(answer{1});
+                end
+            end
+            I = occurence > occThres;
+            newMZ = obj.mzList(I);
+            answer = questdlg(sprintf('Commit %d -> %d ?',length(obj.mzList),length(newMZ)));
+            if strcmp(answer,'Yes')
+                obj.mzList = newMZ;
+                obj.dataMat = obj.dataMat(:,I);              
+            end
+        end
+        
+        function newMZ = featureSelectByCluster(obj,maxClusterNum)       
+            vec = zeros(maxClusterNum,1);
+            for m = 1:maxClusterNum
+                [~,~,sumd] = kmeans(full(obj.dataMat)',m,'Distance','correlation');
+                vec(m) = sum(sumd);
+            end
+            figure('Position',[0,0,1000,400]);
+            plot(subplot(121),1:maxClusterNum,vec);
+%             xy = tsne(full(obj.dataMat)','Distance','correlation');
+%             scatter(subplot(122),xy(:,1),xy(:,2),15,'filled');
+            answer = inputdlg('cluster number','',1);
+            if isempty(answer) || isnan(str2double(answer{1}))
+                newMZ = [];
+                return;
+            else
+                clusterNum = str2double(answer{1});
+            end
+            reptime = 10;
+            summer = inf;
+            c = 0;
+            while(c<reptime)
+                [tI,tC,tS] = kmeans(full(obj.dataMat)',clusterNum,'Distance','correlation');
+                if sum(tS)<summer
+                    summer = sum(tS);
+                    I = tI;
+                    C = tC;
+                end
+                c = c + 1;
+            end
+            t = cell2mat(obj.getFieldByName('sampleTime'));
+            figure('Position',[0,0,400,1000]);
+            for m = 1:clusterNum
+                plot(subplot(clusterNum,1,m),t,C(m,:));
+            end
+            answer = inputdlg('selected cluster','',1);
+            if isempty(answer) || isnan(str2double(answer{1}))
+                newMZ = [];
+                return;
+            else
+                clusterID = str2double(answer{1});
+            end
+            I2 = I==clusterID;
+            answer = questdlg(sprintf('Commit %d -> %d ?',length(I2),sum(I2)));
+            
+            dist = pdist2(obj.dataMat(:,I2)',C(clusterID,:),'correlation');
+            
+            if strcmp(answer,'Yes')
+                obj.mzList = obj.mzList(I2);
+                obj.dataMat = obj.dataMat(:,I2);              
+            end
+            
+            [~,I] = sort(dist);
+            newMZ = obj.mzList(I);
+                      
+        end
     end
     
     methods (Access=private)
@@ -91,7 +181,9 @@ classdef AlignedMSSet < handle
             obj.sourceFileName = dataHandle.fileName;
             massRange = dataHandle.massRange;
             obj.mzList = massRange(1):accuarcy:massRange(2);
-            obj.dataMat = sparse(dataHandle.scanNumber,length(obj.mzList));
+            obj.capacity = 1000000;
+            obj.eleCounter = 0;
+            obj.dataMat = zeros(obj.capacity,3);
             
             [~,~,attri] = dataHandle.getSample(1);
             attriNames = fields(attri);
@@ -100,18 +192,17 @@ classdef AlignedMSSet < handle
             obj.attriCell = cell(L+1,1);
             for m = 1:L
                 obj.attriMap(attriNames{m}) = m;
-                obj.attriCell{m} = zeros(dataHandle.sampleNumber(),1);
+                obj.attriCell{m} = cell(dataHandle.sampleNumber(),1);
             end
             obj.attriMap('oldID') = L+1;
+            obj.attriCell{L+1} = cell(dataHandle.sampleNumber(),1);
             obj.counter = 0;
             
             for m = 1:1:dataHandle.sampleNumber
-%                 if m == 491
-%                     disp('s');
-%                 end
                 [mz,intens,attri] = dataHandle.getSample(m);
                 
                 if ~isempty(mz)
+                    intens = intens/max(intens);
                     if strcmp(dataHandle.readMethod,'Profile')
                         intens = interp1(mz,intens,obj.mzList);
                         mz = obj.mzList;
@@ -125,8 +216,14 @@ classdef AlignedMSSet < handle
                         else
                             func = @(x)max(x);
                         end
+                        tmp = mz'==newMzList;
+                        tmp2 = sum(tmp);
                         for h = 1:1:mzLength
-                            newData(h) = func(intens(mz == newMzList(h)));
+                            if tmp2(h) > 1
+                                newData(h) = func(intens(tmp(:,h)));
+                            else
+                                newData(h) = intens(tmp(:,h));
+                            end
                         end
                         mz = newMzList; intens = newData;
                     end
@@ -139,9 +236,13 @@ classdef AlignedMSSet < handle
                     
                     intens = intens(I);  mz = mz(I);
                     loc = round((mz-massRange(1))/accuarcy)+1;
+                    
+                    if loc(1)<=0 && loc(1) >= -1
+                        loc(1) = 1;
+                    end
                                         
                     obj.addNewMS(loc,intens,attri);
-                    obj.attriCell{obj.attriMap('oldID')}(obj.counter(1)) = m;
+                    obj.attriCell{obj.attriMap('oldID')}{obj.counter(1)} = dataHandle.scanID{m};
                 end
                 
                 if mod(m,1000) == 0
@@ -149,7 +250,8 @@ classdef AlignedMSSet < handle
                 end
             end
             
-            obj.dataMat((obj.counter+1):end,:) = [];
+            obj.dataMat((obj.eleCounter+1):end,:) = [];
+            obj.dataMat = sparse(obj.dataMat(:,1),obj.dataMat(:,2),obj.dataMat(:,3));
             I = find(sum(obj.dataMat)==0);
             obj.dataMat(:,I) = [];
             obj.mzList(:,I) = [];
@@ -161,27 +263,60 @@ classdef AlignedMSSet < handle
         end
         
         function addNewMS(obj,loc,intens,attri)
-%             [~,I] = ismember(mz,obj.mzList);
             obj.counter = obj.counter + 1;
-%             tmp = find(I<=0);
-%             if ~isempty(tmp)
-%                 L = length(tmp);
-%                 fprintf(1,'scan: %d, found: %.4f\n',n,mz(tmp(1)));             
-%                 for m = 1:1:L
-%                     I(tmp(m)) = find(abs(obj.mzList-mz(tmp(m)))<0.000001);
-%                 end
-%             end
-            obj.dataMat(obj.counter,loc) = intens;
+            L = length(loc);
+            
+            if (L+obj.eleCounter) > obj.capacity
+                [obj.dataMat,tmp] = AlignedMSSet2.extendCap(obj.dataMat,1);
+                obj.capacity = tmp(1);
+            end
+            
+            obj.dataMat((1:L)+obj.eleCounter,:) = [ones(L,1)*obj.counter,loc(:),intens(:)];
+            obj.eleCounter = obj.eleCounter + L;
             
             if ~isempty(attri)   
                 attriNames = fields(attri);
                 L = length(attriNames);
                 for m = 1:L
-                    obj.attriCell{obj.attriMap(attriNames{m})}(obj.counter(1)) = extractfield(attri,attriNames{m});
+                    obj.attriCell{obj.attriMap(attriNames{m})}{obj.counter(1)} =  extractfield(attri,attriNames{m});
                 end
             end
         end
         
+        function res = thermoSC(obj,options)
+            scanids = cytoLikeSelect(obj,options.r1,options.r2);
+            t = obj.getFieldByName('sampleTime');
+            SNcell = getSCSN(scanids);
+            L = length(SNcell);
+            fprintf(1,'Detect %d cells\n',length(SNcell));
+            times = zeros(L,1);
+            scanID = zeros(L,1);
+            cellID = (1:L)';
+            mz = zeros(L,length(obj.mzList));
+            if strcmp(options.method,'max')
+                func = @(x)max(x,[],1);
+            else
+                func = @(x)mean(x,1);
+            end
+            for m = 1:1:L
+                sns = SNcell{m};
+                times(m) = mean(t(sns));
+                scanID(m) = mean(sns);
+                mz(m,:) = func(obj.dataMat(sns,:));
+                if std(mz(m,:)) == 0
+                    disp('s');
+                end
+            end
+            figure;
+            plot(t,obj.getMZRange(options.r1)); hold on;
+            scatter(times,mean(obj.getMZRange(options.r1))*ones(L,1),'filled');
+            [fn,fp,index] = uiputfile('*.csv');
+            if index
+                HScsvwrite(strcat(fp,fn),[scanID,times,mz],cellID,...
+                    strcat('cell id,scan id,time,',strrep(array2str(obj.mzList),'  ',',')));
+            end
+            res = table(cellID,scanID,times,mz);
+        end
     end
     
     methods (Static)

@@ -17,58 +17,108 @@ classdef ThermoMSRaw < handle
         additionAttr
     end
     
+    properties (Dependent)
+        fileNum
+    end
+    
     methods
         function obj = ThermoMSRaw(fileName,readMethod)
+            obj.fileName = '';
+            obj.scanNumber = 0;
+            
+            [obj.mz,obj.intens,obj.scanID] = deal({});
+            [obj.scanTime,obj.parentMS] = deal([]);
+                      
+            if readMethod == 0
+                [resolution,PPM] = deal(cell({}));
+                obj.additionAttr = struct();
+                obj.additionAttr.resolution = resolution;
+                obj.additionAttr.PPM = PPM;
+            end
+            
+            obj.addMSByFile(fileName,readMethod);
+            
+        end
+        
+        function res = get.fileNum(obj)
+            if isempty(obj.fileName)
+                res = 0;
+            else
+                res = 1 + length(strfind(obj.fileName,'|'));
+            end
+        end
+        
+        function addMSByFile(obj,fileName,readMethod)
             % readMethod: 0 for Peaks; 1 for Centronized; 2 for Profile
             try
                 pyObj = py.ThermoMSReader.read(fileName,readMethod);
             catch e                
                 rethrow(e);
             end
-            obj.fileName = fileName;
-            obj.scanRange = ThermoMSRaw.parsePyList(pyObj.prop{'scan_range'});
-            obj.timeRange = ThermoMSRaw.parsePyList(pyObj.prop{'time_range'});
-            obj.massRange = ThermoMSRaw.parsePyList(pyObj.prop{'mass_range'});
-            obj.instName = ThermoMSRaw.parsePyStr(pyObj.prop{'inst_name'});
-            obj.tolerence = ThermoMSRaw.parsePyStr(pyObj.prop{'tolerence'});
-            obj.readMethod = ThermoMSRaw.parsePyStr(pyObj.prop{'read_method'});
-            obj.scanNumber = double(pyObj.prop{'scan_number'});
             
-            [obj.mz,obj.intens] = deal(cell(obj.scanNumber,1));
-            [obj.scanID,obj.scanTime,obj.parentMS] = deal(zeros(obj.scanNumber,1));
+            if obj.fileNum == 0
+                obj.fileName = fileName;
+                obj.scanRange = ThermoMSRaw.parsePyList(pyObj.prop{'scan_range'});
+                obj.timeRange = ThermoMSRaw.parsePyList(pyObj.prop{'time_range'});
+                obj.massRange = ThermoMSRaw.parsePyList(pyObj.prop{'mass_range'});
+                obj.instName = ThermoMSRaw.parsePyStr(pyObj.prop{'inst_name'});
+                obj.tolerence = ThermoMSRaw.parsePyStr(pyObj.prop{'tolerence'});
+                obj.readMethod = ThermoMSRaw.parsePyStr(pyObj.prop{'read_method'});
+            else
+                if all(obj.massRange==ThermoMSRaw.parsePyList(pyObj.prop{'mass_range'})) &&...
+                   strcmp(obj.instName,ThermoMSRaw.parsePyStr(pyObj.prop{'inst_name'})) &&...
+                   strcmp(obj.readMethod,ThermoMSRaw.parsePyStr(pyObj.prop{'read_method'}))
+                    obj.fileName = sprintf('%s | %s',obj.fileName, fileName);
+                else
+                    disp('Inconsistent file');
+                    return;
+                end               
+            end
+            
+            sn = double(pyObj.prop{'scan_number'});
+            offset = obj.scanNumber;
+            charac = char(obj.fileNum+64);
+            obj.scanNumber = obj.scanNumber + sn;
+            
+            obj.mz = [obj.mz;cell(sn,1)];
+            obj.intens = [obj.intens;cell(sn,1)];
+            obj.scanID = [obj.scanID;cell(sn,1)];
+            obj.scanTime = [obj.scanTime;zeros(sn,1)];
+            obj.parentMS = [obj.parentMS;zeros(sn,1)];
             
             h = waitbar(0,'Parsing...');
-            for m = 1:1:obj.scanNumber
-                obj.mz{m} = ThermoMSRaw.parsePyList(pyObj.fields{'mz_list'}{m});
-                obj.intens{m} = ThermoMSRaw.parsePyList(pyObj.fields{'intens_list'}{m});
-                obj.scanID(m) = double(pyObj.fields{'scan_number'}{m});
-                obj.scanTime(m) = double(pyObj.fields{'scan_time'}{m});
-                filterStr = char(pyObj.fields{'filter_info'}{m});
+            for m = 1:1:sn
+                try
+                    obj.mz{offset+m} = ThermoMSRaw.parsePyList(pyObj.fields{'mz_list'}{m});
+                    obj.intens{offset+m} = ThermoMSRaw.parsePyList(pyObj.fields{'intens_list'}{m});
+                    obj.scanID{offset+m} = strcat(charac,num2str(double(pyObj.fields{'scan_number'}{m})));
+                    obj.scanTime(offset+m) = double(pyObj.fields{'scan_time'}{m});
+                    filterStr = char(pyObj.fields{'filter_info'}{m});
+                catch
+                    disp('a');
+                end
                 tmp = strfind(filterStr,'ms2');
                 if isempty(tmp)
-                    obj.parentMS(m) = nan;
+                    obj.parentMS(offset+m) = nan;
                 else
-                    obj.parentMS(m) = str2double(filterStr((tmp+4):(strfind(filterStr,'@')-1)));
+                    obj.parentMS(offset+m) = str2double(filterStr((tmp+4):(strfind(filterStr,'@')-1)));
                 end 
-                if mod(m,floor(obj.scanNumber/10)) == 0
-                    waitbar(m/obj.scanNumber,h);
+                if mod(m,floor(sn/10)) == 0
+                    waitbar(m/sn,h);
                 end
             end
             
             if readMethod == 0
-                [resolution,PPM] = deal(cell(obj.scanNumber,1));
-                for m = 1:1:obj.scanNumber
-                    resolution{m} = ThermoMSRaw.parsePyList(pyObj.fields{'resolution'}{m});
-                    PPM{m} = ThermoMSRaw.parsePyList(pyObj.fields{'ppm'}{m});
+                obj.additionAttr.resolution = [obj.additionAttr.resolution;cell(sn,1)];
+                obj.additionAttr.PPM = [obj.additionAttr.PPM;cell(sn,1)];
+                for m = 1:1:sn
+                    obj.additionAttr.resolution{offset+m} = ThermoMSRaw.parsePyList(pyObj.fields{'resolution'}{m});
+                    obj.additionAttr.PPM{offset+m} = ThermoMSRaw.parsePyList(pyObj.fields{'ppm'}{m});
                 end
-                obj.additionAttr = struct();
-                obj.additionAttr.resolution = resolution;
-                obj.additionAttr.PPM = PPM;
             end
             
             close(h);
         end
-        
         function sn = sampleNumber(obj)
             % interface function
             sn = obj.scanNumber;
@@ -76,17 +126,27 @@ classdef ThermoMSRaw < handle
         
         function [mzList,massIntens,attri] = getSample(obj,id)
             % interface function
-            if id > 0 && id <= obj.sampleNumber
+            if isa(id,'double') && id > 0 && id <= obj.sampleNumber
                 mzList = obj.mz{id};
                 massIntens = obj.intens{id};
                 attri = struct();
-                attri.sampleID = obj.scanID(id);
+                attri.sampleID = obj.scanID{id};
                 attri.sampleTime = obj.scanTime(id);
                 attri.parentMS = obj.parentMS(id);
 %                 if strcmp(obj.readMethod,'Peaks')
 %                     attri.resolution = obj.additionAttr.resolution{m};
 %                     attri.PPM = obj.additionAttr.PPM{m};
 %                 end
+            elseif isa(id,'char')
+                [~,tmp] = ismember(id,obj.scanID);
+                if tmp > 0
+                    mzList = obj.mz{tmp};
+                    massIntens = obj.intens{tmp};
+                    attri = struct();
+                    attri.sampleID = obj.scanID{tmp};
+                    attri.sampleTime = obj.scanTime(tmp);
+                    attri.parentMS = obj.parentMS(tmp);
+                end
             else
                 [mzList,massIntens,attri] = deal([]);
             end         

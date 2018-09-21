@@ -1,5 +1,6 @@
 import MSFileReader
 import MSData
+from comtypes import COMError
 
 def read(file_name,method = 0):
     rawfile = MSFileReader.ThermoRawfile(file_name)
@@ -33,7 +34,12 @@ def read(file_name,method = 0):
                 obj.addMS(mz_list=(), intens_list=(), ppm=(), resolution=(), filter_info=(),
                           scan_number=i, scan_time=rawfile.RTFromScanNum(i))
             else:
-                intens, mz, MMU, PPM, resolution = rawfile.GetMassPrecisionEstimate(i)
+                try:
+                    intens, mz, MMU, PPM, resolution = rawfile.GetMassPrecisionEstimate(i)
+                except COMError:
+                    print('failed to read: scan {}'.format(i))
+                    obj.setProp(scan_number = obj.getProp('scan_number') - 1)
+                    continue
                 filter_info = rawfile.GetFilterForScanNum(i)
                 obj.addMS(mz_list=mz,intens_list=intens,ppm = PPM,resolution=resolution,filter_info=filter_info,scan_number = i,
                           scan_time = rawfile.RTFromScanNum(i))

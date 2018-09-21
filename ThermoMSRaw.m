@@ -119,6 +119,7 @@ classdef ThermoMSRaw < handle
             
             close(h);
         end
+        
         function sn = sampleNumber(obj)
             % interface function
             sn = obj.scanNumber;
@@ -156,11 +157,42 @@ classdef ThermoMSRaw < handle
             % interface function
             % 00-Thermo-RAW file
             % 01-SIMS-TXT file
-            % isSpatial | is
+            % isSpatial | isTimeSeries | hasParent
             if all(isnan(obj.parentMS))
                 res = '00010';
             else
                 res = '00011';
+            end
+        end
+        
+        function res = queryMSByLowResMS(obj,r)
+            if length(r) == 1
+                r = [r-1/power(10,getFracPlace(r)),r+1/power(10,getFracPlace(r))];
+            end
+            mzList = zeros(obj.sampleNumber,1);
+            for m = 1:obj.sampleNumber
+                I = and(obj.mz{m}>=r(1),obj.mz{m}<=r(2));
+                if sum(I) > 0
+                    tmpMZ = obj.mz{m}(I);
+                    tmpIntens = obj.intens{m}(I);
+                    [~,I] = max(tmpIntens);
+                    mzList(m) = tmpMZ(I);
+                else
+                    mzList(m) = nan;
+                end
+            end
+            mzList = mzList(~isnan(mzList));
+            if isempty(mzList)
+                fprintf(1,'Query mz: %.4f failed\n',mean(r));
+                res = [];
+                return;
+            end
+            [mzs,~,ia] = unique(mzList);
+            [v,freq] = mode(ia);
+            if freq == 1
+                res = mean(mzList);
+            else
+                res = mzs(v);
             end
         end
     end

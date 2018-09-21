@@ -5,7 +5,8 @@ classdef AlignedMSSet < handle
         sourceID,
         accuracy,
         mzList,
-        dataMat
+        dataMat,
+        sourceObj
     end
     
     properties (Access = private)
@@ -31,6 +32,7 @@ classdef AlignedMSSet < handle
             if ~exist('combineMethod','var')
                 combineMethod = 'max';
             end
+            obj.sourceObj = h;
             tmp = h.getSourceID();
             obj.sourceID = tmp;
             obj.accuracy = accuarcy;
@@ -291,7 +293,7 @@ classdef AlignedMSSet < handle
             fprintf(1,'Detect %d cells\n',length(SNcell));
             times = zeros(L,1);
             scanID = zeros(L,1);
-            cellID = (1:L)';
+            cellID = obj.getFieldByName('oldID');
             mz = zeros(L,length(obj.mzList));
             if strcmp(options.method,'max')
                 func = @(x)max(x,[],1);

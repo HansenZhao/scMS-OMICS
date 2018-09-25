@@ -213,29 +213,87 @@ classdef AlignedMSSet < handle
             if strcmp(answer,'Yes')
                 occ = obj.dataMat > 0;
                 bl = I > (max(I)*thres);
-                z = (sum(occ(bl,:))/sum(bl))./(sum(occ)/size(obj.dataMat,1));
-                x = sum(occ(bl,:))/sum(bl);
-                y = sum(occ(~bl,:))/sum(~bl);
-                figure;
-                scatter(x,y,5,z,'filled'); xlim([-0.1,1.1]); ylim([-0.1,1.1]);
-                set(gca,'CLim',[0,3]);
+%                 z = (sum(occ(bl,:))/sum(bl))./(sum(occ)/size(obj.dataMat,1));
+                x = sum(obj.dataMat(bl,:),1)./(sum(bl)*mean(obj.dataMat,1));
+%                 y = sum(obj.dataMat(~bl,:),1)./(sum(~bl)*mean(obj.dataMat,1));
+%                 y = sum(obj.dataMat(~bl,:),1)./sum(obj.dataMat,1);
+%                 figure;
+%                 scatter(x,y,5,'filled'); xlim([-0.1,1.1]); ylim([-0.1,1.1]);
+%                 set(gca,'CLim',[0,3]);
+%                 a = impoly;
+%                 pXpY = a.getPosition();
+%                 isIn = inpolygon(x,y,pXpY(:,1),pXpY(:,2));
+%                 figure('Position',[0,0,1200,400]);
+%                 tmp = mean(obj.dataMat);
+%                 bar(obj.mzList(isIn),tmp(isIn));
+%                 hold on;
+%                 scatter(obj.mzList(isIn),tmp(isIn),5,'filled');
+                tmp = getThres(x,obj.mzList,obj.dataMat);
+                if tmp > 0
+                    isIn = x>tmp;
+                    if exist('tmp_ams.csv','file')
+                        delete tmp_ams.csv
+                    end
+                    HScsvwrite('tmp_ams.csv',obj.mzList(isIn)',[]);
+                    !write tmp_ams.csv
+                    answer = questdlg('Is that OK?');
+
+                    isIn = or (isIn,obj.locked);
+
+                    if strcmp(answer,'Yes')
+                        obj.mzList = obj.mzList(isIn);
+                        obj.dataMat = obj.dataMat(:,isIn);
+                        obj.locked = obj.locked(isIn);
+                        newMZ = obj.mzList;
+                    else
+                        newMZ = [];
+                    end
+                else
+                    newMZ = [];
+                end
+            else
+                newMZ = [];
+            end
+        end
+        
+        function newMZ = featureSelectByMZSet(obj,refR,wL,snr,thres)
+            I = obj.getMZRange(refR);
+            ref = hsFindPeaks(I,wL,snr,0);
+            L = length(obj.mzList);
+            vec = zeros(L,1);
+            vec2 = zeros(L,1);
+            for m = 1:L
+                sig = hsFindPeaks(obj.dataMat(:,m),wL,snr,0);
+                [alpha,beta,gam] = msSetAlign(sig,ref,thres);
+                vec(m) = beta/(alpha+beta);
+                vec2(m) = beta/(gam+beta);
+            end
+            isOK = 0;
+            while(~isOK)
+                hf = figure;
+                scatter(vec,vec2,5,'filled'); xlim([-0.1,1.1]); ylim([-0.1,1.1]);
                 a = impoly;
                 pXpY = a.getPosition();
-                isIn = inpolygon(x,y,pXpY(:,1),pXpY(:,2));
+                isIn = inpolygon(vec,vec2,pXpY(:,1),pXpY(:,2));
                 figure('Position',[0,0,1200,400]);
                 tmp = mean(obj.dataMat);
-                plot(obj.mzList,tmp);
-                hold on;
-                scatter(obj.mzList(isIn),tmp(isIn),5,'filled');
+                drawMZWithTag(gca,obj.mzList(isIn),tmp(isIn),20);
                 if exist('tmp_ams.csv','file')
                     delete tmp_ams.csv
                 end
                 HScsvwrite('tmp_ams.csv',obj.mzList(isIn)',[]);
                 !write tmp_ams.csv
                 answer = questdlg('Is that OK?');
-                
+                if strcmp(answer,'Yes')
+                    isOK = 1;
+                elseif strcmp(answer,'Cancel')
+                    return;
+                end
+            end
+                answer = questdlg('conform selection?');
+
                 isIn = or (isIn,obj.locked);
-            
+
                 if strcmp(answer,'Yes')
                     obj.mzList = obj.mzList(isIn);
                     obj.dataMat = obj.dataMat(:,isIn);
@@ -244,9 +302,6 @@ classdef AlignedMSSet < handle
                 else
                     newMZ = [];
                 end
-            else
-                newMZ = [];
-            end
         end
     end
     

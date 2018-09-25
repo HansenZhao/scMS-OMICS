@@ -6,6 +6,7 @@ classdef AlignedMSSet < handle
         accuracy,
         mzList,
         dataMat,
+        locked,
         sourceObj
     end
     
@@ -64,6 +65,8 @@ classdef AlignedMSSet < handle
                 [v,I] = min(abs(obj.mzList-r));
                 if v <= (obj.accuracy*0.5)
                     res = double(obj.dataMat(:,I));
+                else
+                    res = [];
                 end
             elseif length(r) == 2
                 I = and(obj.mzList>=r(1),obj.mzList<=r(2));
@@ -73,7 +76,8 @@ classdef AlignedMSSet < handle
                 else
                     res = mean(res,2);
                 end
-            end      
+            end
+            res = full(res);
         end
         
         function res = fields(obj)
@@ -83,6 +87,8 @@ classdef AlignedMSSet < handle
         function res = getFieldByName(obj,fn)
             if obj.attriMap.isKey(fn)
                 res = obj.attriCell{obj.attriMap(fn)};
+            else
+                res = [];
             end
         end
         
@@ -111,12 +117,13 @@ classdef AlignedMSSet < handle
                     occThres = str2double(answer{1});
                 end
             end
-            I = occurence > occThres;
+            I = or(occurence > occThres,obj.locked);
             newMZ = obj.mzList(I);
             answer = questdlg(sprintf('Commit %d -> %d ?',length(obj.mzList),length(newMZ)));
             if strcmp(answer,'Yes')
                 obj.mzList = newMZ;
-                obj.dataMat = obj.dataMat(:,I);              
+                obj.dataMat = obj.dataMat(:,I);
+                obj.locked = obj.locked(I);
             end
         end
         
@@ -161,19 +168,85 @@ classdef AlignedMSSet < handle
             else
                 clusterID = str2double(answer{1});
             end
-            I2 = I==clusterID;
+            I2 = or(I==clusterID,obj.locked);
             answer = questdlg(sprintf('Commit %d -> %d ?',length(I2),sum(I2)));
             
             dist = pdist2(obj.dataMat(:,I2)',C(clusterID,:),'correlation');
             
             if strcmp(answer,'Yes')
                 obj.mzList = obj.mzList(I2);
-                obj.dataMat = obj.dataMat(:,I2);              
+                obj.dataMat = obj.dataMat(:,I2);  
+                obj.locked = obj.locked(I2);
             end
             
             [~,I] = sort(dist);
             newMZ = obj.mzList(I);
                       
+        end
+        
+        function res = lockMZ(obj,r)
+            if length(r) == 1
+                I = find(obj.mzList == r);
+                if isempty(I)
+                    fprintf(1,'Cannot found mz: %.4f\n',r);
+                    res = [];
+                    return;
+                end
+            else
+                I = find(and(obj.mzList>=r(1),obj.mzList<=r(2)));
+                if isempty(I)
+                    fprintf(1,'Cannot found mz: %.4f-%.4f\n',r(1),r(2));
+                    res = [];
+                    return;
+                end
+            end
+            res = obj.mzList(I);
+            obj.locked(I) = 1;
+        end
+        
+        function newMZ = featureSelectByAssemRatio(obj,refR,thres)
+            I = obj.getMZRange(refR);
+            t = cell2mat(obj.getFieldByName('sampleTime'));
+            plot(t,I); hold on; scatter(t(I>(max(I)*thres)),I(I>(max(I)*thres)),5,'filled');
+            answer = questdlg('Is that OK?');
+            
+            if strcmp(answer,'Yes')
+                occ = obj.dataMat > 0;
+                bl = I > (max(I)*thres);
+                z = (sum(occ(bl,:))/sum(bl))./(sum(occ)/size(obj.dataMat,1));
+                x = sum(occ(bl,:))/sum(bl);
+                y = sum(occ(~bl,:))/sum(~bl);
+                figure;
+                scatter(x,y,5,z,'filled'); xlim([-0.1,1.1]); ylim([-0.1,1.1]);
+                set(gca,'CLim',[0,3]);
+                a = impoly;
+                pXpY = a.getPosition();
+                isIn = inpolygon(x,y,pXpY(:,1),pXpY(:,2));
+                figure('Position',[0,0,1200,400]);
+                tmp = mean(obj.dataMat);
+                plot(obj.mzList,tmp);
+                hold on;
+                scatter(obj.mzList(isIn),tmp(isIn),5,'filled');
+                if exist('tmp_ams.csv','file')
+                    delete tmp_ams.csv
+                end
+                HScsvwrite('tmp_ams.csv',obj.mzList(isIn)',[]);
+                !write tmp_ams.csv
+                answer = questdlg('Is that OK?');
+                
+                isIn = or (isIn,obj.locked);
+            
+                if strcmp(answer,'Yes')
+                    obj.mzList = obj.mzList(isIn);
+                    obj.dataMat = obj.dataMat(:,isIn);
+                    obj.locked = obj.locked(isIn);
+                    newMZ = obj.mzList;
+                else
+                    newMZ = [];
+                end
+            else
+                newMZ = [];
+            end
         end
     end
     
@@ -182,7 +255,7 @@ classdef AlignedMSSet < handle
             
             obj.sourceFileName = dataHandle.fileName;
             massRange = dataHandle.massRange;
-            obj.mzList = massRange(1):accuarcy:massRange(2);
+%             obj.mzList = massRange(1):accuarcy:massRange(2);
             obj.capacity = 1000000;
             obj.eleCounter = 0;
             obj.dataMat = zeros(obj.capacity,3);
@@ -202,9 +275,9 @@ classdef AlignedMSSet < handle
             
             for m = 1:1:dataHandle.sampleNumber
                 [mz,intens,attri] = dataHandle.getSample(m);
-                
+                                
                 if ~isempty(mz)
-                    intens = intens/max(intens);
+%                     intens = intens/max(intens);
                     if strcmp(dataHandle.readMethod,'Profile')
                         intens = interp1(mz,intens,obj.mzList);
                         mz = obj.mzList;
@@ -253,10 +326,12 @@ classdef AlignedMSSet < handle
             end
             
             obj.dataMat((obj.eleCounter+1):end,:) = [];
+            obj.mzList = massRange(1) + ((1:1:max(obj.dataMat(:,2)))-1)*accuarcy;
             obj.dataMat = sparse(obj.dataMat(:,1),obj.dataMat(:,2),obj.dataMat(:,3));
-            I = find(sum(obj.dataMat)==0);
+            I = sum(obj.dataMat)==0;
             obj.dataMat(:,I) = [];
             obj.mzList(:,I) = [];
+            obj.locked = zeros(1,length(obj.mzList));
             
                                        
             for m = 1:L+1
@@ -269,7 +344,7 @@ classdef AlignedMSSet < handle
             L = length(loc);
             
             if (L+obj.eleCounter) > obj.capacity
-                [obj.dataMat,tmp] = AlignedMSSet2.extendCap(obj.dataMat,1);
+                [obj.dataMat,tmp] = AlignedMSSet.extendCap(obj.dataMat,1);
                 obj.capacity = tmp(1);
             end
             
@@ -319,7 +394,9 @@ classdef AlignedMSSet < handle
             end
             res = table(cellID,scanID,times,mz);
         end
+        
     end
+    
     
     methods (Static)
         function intens = interpMASSIntens(mz,x,y)

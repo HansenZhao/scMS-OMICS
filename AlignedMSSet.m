@@ -133,8 +133,8 @@ classdef AlignedMSSet < handle
                 [~,~,sumd] = kmeans(full(obj.dataMat)',m,'Distance','correlation');
                 vec(m) = sum(sumd);
             end
-            figure('Position',[0,0,1000,400]);
-            plot(subplot(121),1:maxClusterNum,vec);
+            hf = figure('Position',[0,100,1000,400]);
+            plot(subplot(121),1:maxClusterNum,vec); xticks(1:maxClusterNum);
 %             xy = tsne(full(obj.dataMat)','Distance','correlation');
 %             scatter(subplot(122),xy(:,1),xy(:,2),15,'filled');
             answer = inputdlg('cluster number','',1);
@@ -157,6 +157,7 @@ classdef AlignedMSSet < handle
                 c = c + 1;
             end
             t = cell2mat(obj.getFieldByName('sampleTime'));
+            close(hf);
             figure('Position',[0,0,400,1000]);
             for m = 1:clusterNum
                 plot(subplot(clusterNum,1,m),t,C(m,:));
@@ -168,7 +169,7 @@ classdef AlignedMSSet < handle
             else
                 clusterID = str2double(answer{1});
             end
-            I2 = or(I==clusterID,obj.locked);
+            I2 = or(I==clusterID,obj.locked');
             answer = questdlg(sprintf('Commit %d -> %d ?',length(I2),sum(I2)));
             
             dist = pdist2(obj.dataMat(:,I2)',C(clusterID,:),'correlation');

@@ -259,6 +259,10 @@ classdef AlignedMSSet < handle
         
         function newMZ = featureSelectByMZSet(obj,refR,wL,snr,thres)
             I = obj.getMZRange(refR);
+            if isempty(I)
+                disp('no valid peaks found!');
+                return;
+            end
             ref = hsFindPeaks(I,wL,snr,0);
             L = length(obj.mzList);
             vec = zeros(L,1);
@@ -268,6 +272,9 @@ classdef AlignedMSSet < handle
                 [alpha,beta,gam] = msSetAlign(sig,ref,thres);
                 vec(m) = beta/(alpha+beta);
                 vec2(m) = beta/(gam+beta);
+                if mod(m,1000)==0
+                    fprintf(1,'%d/%d\n',m,L);
+                end
             end
             isOK = 0;
             while(~isOK)
@@ -303,6 +310,40 @@ classdef AlignedMSSet < handle
                 else
                     newMZ = [];
                 end
+        end
+        
+        function trimBefore(obj,t)
+            st = cell2mat(obj.getFieldByName('sampleTime'));
+            I = st<t;
+            obj.dataMat(I,:) = [];
+            for m = 1:length(obj.attriCell)
+                obj.attriCell{m}(I) = [];
+            end
+        end
+        
+        function trimAfter(obj,t)
+            st = cell2mat(obj.getFieldByName('sampleTime'));
+            I = st>t;
+            obj.dataMat(I,:) = [];
+            for m = 1:length(obj.attriCell)
+                obj.attriCell{m}(I) = [];
+            end
+        end
+        
+        function blSubstrate(obj,winSize,stepSize)
+            if ~exist('winSize','var')
+                winSize = 0.01;
+            end
+            if ~exist('stepSize','var')
+                stepSize = 0.02;
+            end
+            t = cell2mat(obj.getFieldByName('sampleTime'));
+            for m = 1:length(obj.mzList)
+                k = msbackadj(t,obj.dataMat(:,m),'WindowSize',winSize,'StepSize',stepSize);
+                k(k<0) = 0;
+%                 figure('Position',[0,100,1200,300]); plot(t,obj.dataMat(:,m),t,k); pause(1);
+                obj.dataMat(:,m) = k;
+            end
         end
     end
     
@@ -368,7 +409,7 @@ classdef AlignedMSSet < handle
                     intens = intens(I);  mz = mz(I);
                     loc = round((mz-massRange(1))/accuarcy)+1;
                     
-                    if loc(1)<=0 && loc(1) >= -1
+                    if loc(1)<=0
                         loc(1) = 1;
                     end
                                         
@@ -418,13 +459,14 @@ classdef AlignedMSSet < handle
         
         function res = thermoSC(obj,options)
             scanids = cytoLikeSelect(obj,options.r1,options.r2);
-            t = obj.getFieldByName('sampleTime');
+            t = cell2mat(obj.getFieldByName('sampleTime'));
             SNcell = getSCSN(scanids);
             L = length(SNcell);
             fprintf(1,'Detect %d cells\n',length(SNcell));
             times = zeros(L,1);
             scanID = zeros(L,1);
-            cellID = obj.getFieldByName('oldID');
+            IDs = obj.getFieldByName('oldID');
+            cellID = cell(L,1);
             mz = zeros(L,length(obj.mzList));
             if strcmp(options.method,'max')
                 func = @(x)max(x,[],1);
@@ -435,6 +477,7 @@ classdef AlignedMSSet < handle
                 sns = SNcell{m};
                 times(m) = mean(t(sns));
                 scanID(m) = mean(sns);
+                cellID{m} = IDs{round(scanID(m))};
                 mz(m,:) = func(obj.dataMat(sns,:));
                 if std(mz(m,:)) == 0
                     disp('s');

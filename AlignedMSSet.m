@@ -66,10 +66,17 @@ classdef AlignedMSSet < handle
                 if v <= (obj.accuracy*0.5)
                     res = double(obj.dataMat(:,I));
                 else
+                    disp('component not found!');
                     res = [];
+                    return;
                 end
             elseif length(r) == 2
                 I = and(obj.mzList>=r(1),obj.mzList<=r(2));
+                if sum(I) == 0
+                    disp('component not found!');
+                    res = [];
+                    return;
+                end
                 res = obj.dataMat(:,I);
                 if strcmp(method,'max')
                     res = max(res,[],2);
@@ -100,12 +107,18 @@ classdef AlignedMSSet < handle
                 if ~isfield(options,'method')
                     options.method = 'max';
                 end
+                if ~isfield(options,'csv')
+                    options.csv = 1;
+                end
+                if ~isfield(options,'isShow')
+                    options.isShow = 0;
+                end
                 res = obj.thermoSC(options);
             end
             
         end
         
-        function newMZ = featureSelectByOcc(obj,occThres)
+        function newMZ = featureSelectByOcc(obj,occThres,isAskConfirm)
             occurence = full(sum(obj.dataMat>0));
             if ~exist('occThres','var')
                 histogram(occurence,'BinWidth',20);
@@ -117,9 +130,16 @@ classdef AlignedMSSet < handle
                     occThres = str2double(answer{1});
                 end
             end
+            if ~exist('isAskConfirm','var')
+                isAskConfirm = 1;
+            end
             I = or(occurence > occThres,obj.locked);
             newMZ = obj.mzList(I);
-            answer = questdlg(sprintf('Commit %d -> %d ?',length(obj.mzList),length(newMZ)));
+            if isAskConfirm
+                answer = questdlg(sprintf('Commit %d -> %d ?',length(obj.mzList),length(newMZ)));
+            else
+                answer = 'Yes';
+            end
             if strcmp(answer,'Yes')
                 obj.mzList = newMZ;
                 obj.dataMat = obj.dataMat(:,I);
@@ -205,39 +225,36 @@ classdef AlignedMSSet < handle
             obj.locked(I) = 1;
         end
         
-        function newMZ = featureSelectByAssemRatio(obj,refR,thres)
+        function newMZ = featureSelectByAssemRatio(obj,refR,thres,isAsk)
+            if ~exist('isAsk','var')
+                isAsk = 1;
+            end
             I = obj.getMZRange(refR);
             t = cell2mat(obj.getFieldByName('sampleTime'));
+            hf = figure;
             plot(t,I); hold on; scatter(t(I>(max(I)*thres)),I(I>(max(I)*thres)),5,'filled');
             answer = questdlg('Is that OK?');
             
             if strcmp(answer,'Yes')
                 occ = obj.dataMat > 0;
                 bl = I > (max(I)*thres);
-%                 z = (sum(occ(bl,:))/sum(bl))./(sum(occ)/size(obj.dataMat,1));
+
                 x = sum(obj.dataMat(bl,:),1)./(sum(bl)*mean(obj.dataMat,1));
-%                 y = sum(obj.dataMat(~bl,:),1)./(sum(~bl)*mean(obj.dataMat,1));
-%                 y = sum(obj.dataMat(~bl,:),1)./sum(obj.dataMat,1);
-%                 figure;
-%                 scatter(x,y,5,'filled'); xlim([-0.1,1.1]); ylim([-0.1,1.1]);
-%                 set(gca,'CLim',[0,3]);
-%                 a = impoly;
-%                 pXpY = a.getPosition();
-%                 isIn = inpolygon(x,y,pXpY(:,1),pXpY(:,2));
-%                 figure('Position',[0,0,1200,400]);
-%                 tmp = mean(obj.dataMat);
-%                 bar(obj.mzList(isIn),tmp(isIn));
-%                 hold on;
-%                 scatter(obj.mzList(isIn),tmp(isIn),5,'filled');
+
                 tmp = getThres(x,obj.mzList,obj.dataMat);
                 if tmp > 0
                     isIn = x>tmp;
-                    if exist('tmp_ams.csv','file')
-                        delete tmp_ams.csv
+                    
+                    if isAsk
+                        if exist('tmp_ams.csv','file')
+                            delete tmp_ams.csv
+                        end
+                        HScsvwrite('tmp_ams.csv',obj.mzList(isIn)',[]);
+                        !write tmp_ams.csv
+                        answer = questdlg('Is that OK?');
+                    else
+                        answer = 'Yes';
                     end
-                    HScsvwrite('tmp_ams.csv',obj.mzList(isIn)',[]);
-                    !write tmp_ams.csv
-                    answer = questdlg('Is that OK?');
 
                     isIn = or (isIn,obj.locked);
 
@@ -458,7 +475,7 @@ classdef AlignedMSSet < handle
         end
         
         function res = thermoSC(obj,options)
-            scanids = cytoLikeSelect(obj,options.r1,options.r2);
+            scanids = cytoLikeSelect(obj,options.r1,options.r2,options.isShow);
             t = cell2mat(obj.getFieldByName('sampleTime'));
             SNcell = getSCSN(scanids);
             L = length(SNcell);
@@ -483,13 +500,15 @@ classdef AlignedMSSet < handle
                     disp('s');
                 end
             end
-            figure;
-            plot(t,obj.getMZRange(options.r1)); hold on;
-            scatter(times,mean(obj.getMZRange(options.r1))*ones(L,1),'filled');
-            [fn,fp,index] = uiputfile('*.csv');
-            if index
-                HScsvwrite(strcat(fp,fn),[scanID,times,mz],cellID,...
-                    strcat('cell id,scan id,time,',strrep(array2str(obj.mzList),'  ',',')));
+            if options.csv
+                figure;
+                plot(t,obj.getMZRange(options.r1)); hold on;
+                scatter(times,mean(obj.getMZRange(options.r1))*ones(L,1),'filled');
+                [fn,fp,index] = uiputfile('*.csv');
+                if index
+                    HScsvwrite(strcat(fp,fn),[scanID,times,mz],cellID,...
+                        strcat('cell id,scan id,time,',strrep(array2str(obj.mzList),'  ',',')));
+                end
             end
             res = table(cellID,scanID,times,mz);
         end

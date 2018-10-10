@@ -7,7 +7,8 @@ classdef ThermoClustering < handle
         msNames,
         defaultOcc,
         markers,
-        referMZ,        
+        referMZ,
+        toCellRes
     end
     
     properties (Dependent)
@@ -18,6 +19,7 @@ classdef ThermoClustering < handle
         function obj = ThermoClustering(resolution,occ,m1,m2,referMz)
             obj.rawObj = {};
             obj.msObj = {};
+            obj.toCellRes = {};
             obj.msNames = {};
             
             if ~exist('resolution','var')
@@ -53,8 +55,9 @@ classdef ThermoClustering < handle
             msFilePath = cell(L,1);
             for m = 1:L
                 [fn,fp,index] = uigetfile('*.raw',sprintf('Select file for %s...',names{m}));
-                if index
+                if index                   
                     msFilePath{m} = strcat(fp,fn);
+                    fprintf(1,'set %s path %s\n',names{m},msFilePath{m});
                 else
                     fprintf(1,'failed to add %s\n',names{m});
                     msFilePath{m} = [];
@@ -67,6 +70,7 @@ classdef ThermoClustering < handle
                 obj.msNames((preLen+1):(preLen+L)) = names;
                 obj.rawObj((preLen+1):(preLen+L)) = cell(L,1);
                 obj.msObj((preLen+1):(preLen+L)) = cell(L,1);
+                obj.toCellRes((preLen+1):(preLen+L)) = cell(L,1);
                 for m = 1:L
                     fprintf(1,'Loading %s ...\n',names{m});
                     obj.rawObj{preLen+m} = ThermoMSRaw(msFilePath{m},0);
@@ -134,7 +138,7 @@ classdef ThermoClustering < handle
             obj.msObj(n) = cellfun(@(x)AlignedMSSet(x,obj.resolution),obj.rawObj(n),'UniformOutput',0);
         end
         
-        function cluster(obj,n,isCsv)
+        function [mat,nCell,mz,tag] = cluster(obj,n,isCsv)
             if ~exist('isCsv','var')
                 isCsv = 0;
             end
@@ -149,8 +153,11 @@ classdef ThermoClustering < handle
             nCell = zeros(L,1);
             tag = [];
             for m = 1:L
-                res{m} = obj.msObj{n(m)}.toSC(struct('r1',obj.markers{1},'r2',obj.markers{2},'csv',isCsv));
-                res{m} = res{m}.mz;
+                if isempty(obj.toCellRes{n(m)})
+                    obj.toCellRes{n(m)} = obj.msObj{n(m)}.toSC(...
+                        struct('r1',obj.markers{1},'r2',obj.markers{2},'csv',isCsv));
+                end
+                res{m} = obj.toCellRes{n(m)}.mz;
                 nCell(m) = size(res{m},1);
                 tag = [tag;m*ones(nCell(m),1)];
             end
@@ -160,14 +167,28 @@ classdef ThermoClustering < handle
                 mz = union(mz,mzLists{m});
             end
             mz = sort(mz);
+            I = find((mz(2:end) - mz(1:(end-1)))<0.1*obj.resolution);
+            mz(I+1) = [];
             mat = zeros(sum(nCell),length(mzLists));
-            for m = 1:obj.nFiles
+            for m = 1:L
                 [~,I] = ismember(mzLists{m},mz);
+                loc = find(I==0);
+                for h = 1:length(loc)
+                    [~,I(loc(h))] = min(abs(mz-mzLists{m}(loc(h)))); 
+                end
                 mat((1+sum(nCell(1:(m-1)))):sum(nCell(1:m)),I) = res{m};
             end
             
             xy = tsne(mat./max(mat,[],2));
-            gscatter(xy(:,1),xy(:,2),tag);         
+            h = gscatter(xy(:,1),xy(:,2),tag); 
+            for m = 1:L
+                h(m).DisplayName = obj.msNames{n(m)};
+            end
+            xticks([]); yticks([]); xlabel('t-SNE Dim 1'); ylabel('t-SNE Dim 2');
+        end
+        
+        function delSCRes(obj,n)
+            obj.toCellRes{n} = {};
         end
         
         function setReferMZ(obj,r)

@@ -71,7 +71,8 @@ classdef AlignedMSSet < handle
                     return;
                 end
             elseif length(r) == 2
-                I = and(obj.mzList>=r(1),obj.mzList<=r(2));
+                I = and(obj.mzList>=(r(1)-obj.accuracy*0.5),...
+                        obj.mzList<=(r(2)+obj.accuracy*0.5));
                 if sum(I) == 0
                     disp('component not found!');
                     res = [];
@@ -230,6 +231,9 @@ classdef AlignedMSSet < handle
                 isAsk = 1;
             end
             I = obj.getMZRange(refR);
+            if isempty(I)
+                return;
+            end
             t = cell2mat(obj.getFieldByName('sampleTime'));
             hf = figure;
             plot(t,I); hold on; scatter(t(I>(max(I)*thres)),I(I>(max(I)*thres)),5,'filled');

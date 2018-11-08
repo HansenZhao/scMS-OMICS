@@ -243,8 +243,18 @@ classdef AlignedMSSet < handle
                 occ = obj.dataMat > 0;
                 bl = I > (max(I)*thres);
 
-                x = sum(obj.dataMat(bl,:),1)./(sum(bl)*mean(obj.dataMat,1));
-
+                x = sum(obj.dataMat(bl,:),1)./(sum(bl)*mean(obj.dataMat(~bl),1));
+                [x_sorted,sortRank] = sort(x,'descend');
+ 
+                tmpName = strsplit(obj.sourceFileName,'\');
+                tmpMat = obj.dataMat./max(obj.dataMat);
+                tmpIntens = mean(tmpMat(bl,:));
+                
+                tmpTable = table(obj.mzList(sortRank)',x_sorted',tmpIntens(sortRank)',...
+                    'VariableNames',{'mz','assemIndex','meanIntens'});
+                
+                writetable(tmpTable,sprintf('%s_assemIndex.csv',tmpName{end}));
+                
                 tmp = getThres(x,obj.mzList,obj.dataMat);
                 if tmp > 0
                     isIn = x>tmp;
@@ -254,7 +264,7 @@ classdef AlignedMSSet < handle
                             delete tmp_ams.csv
                         end
                         HScsvwrite('tmp_ams.csv',obj.mzList(isIn)',[]);
-                        !write tmp_ams.csv
+                        
                         answer = questdlg('Is that OK?');
                     else
                         answer = 'Yes';

@@ -138,7 +138,7 @@ classdef ThermoClustering < handle
             obj.msObj(n) = cellfun(@(x)AlignedMSSet(x,obj.resolution),obj.rawObj(n),'UniformOutput',0);
         end
         
-        function [mat,nCell,mz,tag] = cluster(obj,n,isCsv)
+        function [clusterRes] = cluster(obj,n,isCsv)
             if ~exist('isCsv','var')
                 isCsv = 0;
             end
@@ -152,6 +152,7 @@ classdef ThermoClustering < handle
             res = cell(L,1);
             nCell = zeros(L,1);
             tag = [];
+            sampleNames = cell(L,1);
             for m = 1:L
                 if isempty(obj.toCellRes{n(m)})
                     obj.toCellRes{n(m)} = obj.msObj{n(m)}.toSC(...
@@ -160,6 +161,7 @@ classdef ThermoClustering < handle
                 res{m} = obj.toCellRes{n(m)}.mz;
                 nCell(m) = size(res{m},1);
                 tag = [tag;m*ones(nCell(m),1)];
+                sampleNames{m} = obj.msNames{n(m)};
             end
             mzLists = cellfun(@(x)x.mzList,obj.msObj(n),'UniformOutput',0);
             mz = mzLists{1};
@@ -179,12 +181,19 @@ classdef ThermoClustering < handle
                 mat((1+sum(nCell(1:(m-1)))):sum(nCell(1:m)),I) = res{m};
             end
             
-            xy = tsne(mat./max(mat,[],2));
-            h = gscatter(xy(:,1),xy(:,2),tag); 
-            for m = 1:L
-                h(m).DisplayName = obj.msNames{n(m)};
-            end
-            xticks([]); yticks([]); xlabel('t-SNE Dim 1'); ylabel('t-SNE Dim 2');
+            clusterRes = struct();
+            clusterRes.mat = mat;
+            clusterRes.nCell = nCell;
+            clusterRes.mz = mz;
+            clusterRes.tag = tag;
+            clusterRes.sampleNames = sampleNames;
+            
+%             xy = tsne(mat./max(mat,[],2));
+%             h = gscatter(xy(:,1),xy(:,2),tag); 
+%             for m = 1:L
+%                 h(m).DisplayName = obj.msNames{n(m)};
+%             end
+%             xticks([]); yticks([]); xlabel('t-SNE Dim 1'); ylabel('t-SNE Dim 2');
         end
         
         function delSCRes(obj,n)
@@ -201,6 +210,68 @@ classdef ThermoClustering < handle
         
         function r = nPeaks(obj)
             r = cellfun(@(x)length(x.mzList),obj.msObj);
+        end
+    end
+    
+    methods (Static)
+        function res = calCellOccIndex(clusterRes)
+            mat = clusterRes.mat;
+            mz = clusterRes.mz;
+            tag = clusterRes.tag;
+            tagSet = unique(tag);
+            nTag = length(tagSet);     
+            nMZ = length(mz);
+            res = zeros(nMZ,nTag+1);
+            res(:,1) = mz(:);
+            for m = 1:nMZ
+                for n = 1:nTag
+                    res(m,n+1) = sum(mat(tag==tagSet(n),m) > 0)/sum(tag==tagSet(n));
+                end
+            end           
+        end
+        function [hf,mzUsed] = procTSNE(clusterRes,range,varargin)
+            % procTSNE(clusterRes,[]) equal to procTSNE(clusterRes,[],'all',-1)
+            % procTSNE(clusterRes,[],'any',0.2)
+            % procTSNE(clusterRes,[],'all',0.2)
+            % procTSNE(clusterRes,[300,500],'all',0.2);
+            if nargin == 2
+                comd = 'all';
+                thres = -1;
+            else
+                comd = varargin{1};
+                thres = varargin{2};
+            end
+            
+            if isempty(range)
+                range = [-1,inf];
+            end
+            
+            mat = clusterRes.mat;
+            tag = clusterRes.tag;
+            sNames = clusterRes.sampleNames;
+            hf = figure('Position',[100,100,520,500]);
+            L = length(unique(tag));
+            mzOccList = ThermoClustering.calCellOccIndex(clusterRes);
+            switch comd
+                case 'all'
+                    I = and(all(mzOccList(:,2:end)>thres,2),...
+                        and(clusterRes.mz>range(1),clusterRes.mz<range(2))');
+                case 'any'
+                    I = and(any(mzOccList(:,2:end)>thres,2),...
+                        and(clusterRes.mz>range(1),clusterRes.mz<range(2))');
+            end
+            fprintf(1,'Filter Out %d peaks, remain: %d\n',sum(~I),sum(I));
+            if all(I==0)
+                disp('no peaks left');
+                return;
+            end
+            mzUsed = clusterRes.mz(I);
+            xy = tsne(mat./max(mat,[],2));
+            h = gscatter(xy(:,1),xy(:,2),tag);
+            for m = 1:L
+                h(m).DisplayName = sNames{m};
+            end
+            xticks([]); yticks([]); xlabel('t-SNE Dim 1'); ylabel('t-SNE Dim 2');
         end
     end
     

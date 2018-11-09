@@ -242,16 +242,22 @@ classdef AlignedMSSet < handle
             if strcmp(answer,'Yes')
                 occ = obj.dataMat > 0;
                 bl = I > (max(I)*thres);
+%                 x = sum(obj.dataMat(bl,:),1)./(sum(bl)*mean(obj.dataMat(:,1)));
 
-                x = sum(obj.dataMat(bl,:),1)./(sum(bl)*mean(obj.dataMat(~bl),1));
+                x = min(sum(obj.dataMat(bl,:),1)./(sum(bl)*mean(obj.dataMat(~bl,:),1)),20);
+
                 [x_sorted,sortRank] = sort(x,'descend');
  
                 tmpName = strsplit(obj.sourceFileName,'\');
                 tmpMat = obj.dataMat./max(obj.dataMat);
                 tmpIntens = mean(tmpMat(bl,:));
+                tmpGlobalIntens = mean(tmpMat);
+                intensRatio = tmpIntens./tmpGlobalIntens;
                 
                 tmpTable = table(obj.mzList(sortRank)',x_sorted',tmpIntens(sortRank)',...
-                    'VariableNames',{'mz','assemIndex','meanIntens'});
+                    tmpGlobalIntens(sortRank)', intensRatio(sortRank)',...
+                    'VariableNames',{'mz','assemIndex','meanIntens','tmpGlobalIntens',...
+                    'intensRatio'});
                 
                 writetable(tmpTable,sprintf('%s_assemIndex.csv',tmpName{end}));
                 

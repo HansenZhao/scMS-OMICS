@@ -413,8 +413,9 @@ classdef AlignedMSSet < handle
                 if ~isempty(mz)
 %                     intens = intens/max(intens);
                     if strcmp(dataHandle.readMethod,'Profile')
-                        intens = interp1(mz,intens,obj.mzList);
-                        mz = obj.mzList;
+                        tmpMZ = dataHandle.massRange(1):accuarcy:dataHandle.massRange(2);
+                        intens = interp1(mz,intens,tmpMZ);
+                        mz = tmpMZ;
                     else
                         mz = round(mz/accuarcy)*accuarcy;
                         newMzList = unique(mz);
@@ -481,7 +482,7 @@ classdef AlignedMSSet < handle
                 [obj.dataMat,tmp] = AlignedMSSet.extendCap(obj.dataMat,1);
                 obj.capacity = tmp(1);
             end
-            
+            % obj.dataMat [x_pos,y_pos,intens]
             obj.dataMat((1:L)+obj.eleCounter,:) = [ones(L,1)*obj.counter,loc(:),intens(:)];
             obj.eleCounter = obj.eleCounter + L;
             

@@ -234,7 +234,7 @@ classdef ThermoClustering < handle
             % procTSNE(clusterRes,[],'any',0.2)
             % procTSNE(clusterRes,[],'all',0.2)
             % procTSNE(clusterRes,[300,500],'all',0.2);
-            if nargin == 2
+            if nargin < 3
                 comd = 'all';
                 thres = -1;
             else
@@ -242,7 +242,7 @@ classdef ThermoClustering < handle
                 thres = varargin{2};
             end
             
-            if isempty(range)
+            if ~exist('range','var') || isempty(range)
                 range = [-1,inf];
             end
             

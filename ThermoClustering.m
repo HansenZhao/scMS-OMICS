@@ -273,6 +273,61 @@ classdef ThermoClustering < handle
             end
             xticks([]); yticks([]); xlabel('t-SNE Dim 1'); ylabel('t-SNE Dim 2');
         end
+        function mzDiffSignif(clusterRes,globalFilterFunc,pairFilterFunc,groupFilterFunc)  
+            %ThermoClustering.mzDiffSignif(r,@(x)sum(x>0,2)>2,@(x)sum(x>0.2,2)>1,@(x)x>0);
+            occIndex = ThermoClustering.calCellOccIndex(clusterRes);
+            clusterRes.mat = clusterRes.mat./max(clusterRes.mat,[],2);
+            occIndex(:,1) = [];
+            I = globalFilterFunc(occIndex);
+            fprintf(1,'Global filter: %d/%d\n',sum(I),length(clusterRes.mz));
+            nTag = length(unique(clusterRes.tag));
+            for m = 1:(nTag-1)
+                for n = (m+1):nTag
+                    I2 = pairFilterFunc(occIndex(:,[m,n]));
+                    nMZSelected = sum(and(I,I2));
+                    selectedMZ = clusterRes.mz(and(I,I2))';
+                    index = find(and(I,I2));
+                    [pValues,logPVlaue,mOccRatio,nOccRatio,mMean,nMean] = deal(zeros(nMZSelected,1));
+                    fprintf(1,'Pair filter %s-%s: %d/%d\n',...
+                        clusterRes.sampleNames{m},clusterRes.sampleNames{n},...
+                        nMZSelected,length(clusterRes.mz));
+                    for h = 1:1:nMZSelected
+                        mData = clusterRes.mat(clusterRes.tag==m,index(h));
+                        nData = clusterRes.mat(clusterRes.tag==n,index(h));
+                        Im = groupFilterFunc(mData);
+                        In = groupFilterFunc(nData);
+                        p = kruskalwallis([mData(Im);nData(In)],[zeros(sum(Im),1);ones(sum(In),1)],'off');
+                        pValues(h) = p;
+                        logPVlaue(h) = -log10(p);
+                        mOccRatio(h) = sum(Im)/length(mData);
+                        nOccRatio(h) = sum(In)/length(nData);
+                        mMean(h) = mean(mData(Im));
+                        nMean(h) = mean(nData(In));
+                    end
+                    [pValues,Isort] = sort(pValues);
+                    res = table(selectedMZ(Isort),mOccRatio(Isort),nOccRatio(Isort),mMean(Isort),nMean(Isort),pValues,logPVlaue(Isort),...
+                        'VariableNames',{'mz','mOccRatio','nOccRatio','mMean','nMean','pValue','logPValue'});
+                    writetable(res,sprintf('%s-%s-mz-diff-significance.csv',...
+                        clusterRes.sampleNames{m},clusterRes.sampleNames{n}));
+                end
+            end
+        end
+        function t=volcano()
+            [fn,fp] = uigetfile('*.csv');
+            t = readtable(strcat(fp,fn));
+            x = log2(t.mMean./t.nMean);
+            y = t.logPValue;
+            figure('Position',[0,0,600,600]);
+            scatter(x,y,20,'filled');
+            xlim([-1,1]*max(abs(x))); ylim([0,max(y)]); 
+            xlabel('log_2FC'); ylabel('-log_{10}(P)');
+            title(fn); box on;
+            figure('Position',[0,0,600,600]);
+            text(x,y,num2str(t.mz));
+            xlim([-1,1]*max(abs(x))); ylim([0,max(y)]); 
+            xlabel('log_2FC'); ylabel('-log_{10}(P)');
+            title(fn); box on;
+        end
     end
     
 end

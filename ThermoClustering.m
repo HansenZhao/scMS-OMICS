@@ -252,13 +252,25 @@ classdef ThermoClustering < handle
             hf = figure('Position',[100,100,520,500]);
             L = length(unique(tag));
             mzOccList = ThermoClustering.calCellOccIndex(clusterRes);
+            if isnumeric(range) && length(range) == 2
+                mask = and(clusterRes.mz>range(1),clusterRes.mz<range(2))';
+            else
+                if isnumeric(range) && length(range) > 2
+                    validMz = range;
+                elseif ischar(range) && strcmp(range,'file')
+                    [fn,fp] = uigetfile('*.csv');
+                    validMz = importdata(strcat(fp,fn));
+                else
+                    disp('unable to solve range parameter!');
+                    return;
+                end
+                [~,mask] = isSimilar(clusterRes.mz,validMz,0.00001);
+            end
             switch comd
                 case 'all'
-                    I = and(all(mzOccList(:,2:end)>thres,2),...
-                        and(clusterRes.mz>range(1),clusterRes.mz<range(2))');
+                    I = and(all(mzOccList(:,2:end)>thres,2),mask);
                 case 'any'
-                    I = and(any(mzOccList(:,2:end)>thres,2),...
-                        and(clusterRes.mz>range(1),clusterRes.mz<range(2))');
+                    I = and(any(mzOccList(:,2:end)>thres,2),mask);
             end
             fprintf(1,'Filter Out %d peaks, remain: %d\n',sum(~I),sum(I));
             if all(I==0)
@@ -272,13 +284,15 @@ classdef ThermoClustering < handle
                 h(m).DisplayName = sNames{m};
             end
             xticks([]); yticks([]); xlabel('t-SNE Dim 1'); ylabel('t-SNE Dim 2');
+            title(clusterCoeff(xy,tag,0));
         end
         function mzDiffSignif(clusterRes,globalFilterFunc,pairFilterFunc,groupFilterFunc)  
             %ThermoClustering.mzDiffSignif(r,@(x)sum(x>0,2)>2,@(x)sum(x>0.2,2)>1,@(x)x>0);
             occIndex = ThermoClustering.calCellOccIndex(clusterRes);
-            clusterRes.mat = clusterRes.mat./max(clusterRes.mat,[],2);
+%             clusterRes.mat = clusterRes.mat./max(clusterRes.mat,[],2);
             occIndex(:,1) = [];
             I = globalFilterFunc(occIndex);
+            clusterRes.mat = clusterRes.mat./max(clusterRes.mat(:,I),[],2);
             fprintf(1,'Global filter: %d/%d\n',sum(I),length(clusterRes.mz));
             nTag = length(unique(clusterRes.tag));
             for m = 1:(nTag-1)

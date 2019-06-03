@@ -85,7 +85,7 @@ classdef AlignedMSSet < handle
                     res = mean(res,2);
                 end
             elseif isempty(r)
-                res = sum(obj.dataMat,2);
+                res = sum(obj.dataMat,2)
             end
             res = full(res);
         end
@@ -208,9 +208,17 @@ classdef AlignedMSSet < handle
                       
         end
         
+        function norByRange(obj,r)
+            ref = obj.getMZRange(r);
+            figure;
+            plot(ref);
+            title(min(ref));
+            obj.dataMat = obj.dataMat./ref;
+        end
+        
         function res = lockMZ(obj,r)
             if length(r) == 1
-                I = find(obj.mzList == r);
+                I = find(abs(obj.mzList-r)<1e-4);
                 if isempty(I)
                     fprintf(1,'Cannot found mz: %.4f\n',r);
                     res = [];

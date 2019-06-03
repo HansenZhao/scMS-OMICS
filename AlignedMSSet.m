@@ -84,6 +84,8 @@ classdef AlignedMSSet < handle
                 else
                     res = mean(res,2);
                 end
+            elseif isempty(r)
+                res = sum(obj.dataMat,2);
             end
             res = full(res);
         end

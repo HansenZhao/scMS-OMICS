@@ -165,12 +165,9 @@ classdef ThermoMSRaw < handle
             end
         end
         
-        function res = queryMSByLowResMS(obj,r,method,boost)
-            if nargin < 3
-                boost = 1;
-            end
+        function res = queryMSByLowResMS(obj,r)
             if length(r) == 1
-                r = [r-boost/power(10,getFracPlace(r)),r+boost/power(10,getFracPlace(r))];
+                r = [r-1/power(10,getFracPlace(r)),r+1/power(10,getFracPlace(r))];
             end
             mzList = zeros(obj.sampleNumber,1);
             for m = 1:obj.sampleNumber
@@ -178,13 +175,7 @@ classdef ThermoMSRaw < handle
                 if sum(I) > 0
                     tmpMZ = obj.mz{m}(I);
                     tmpIntens = obj.intens{m}(I);
-                    if strcmp(method,'maxIntens')
-                        [~,I] = max(tmpIntens);
-                    elseif strcmp(method,'minDis')
-                        [~,I] = min(abs(tmpMZ-mean(r)));
-                    else
-                        error('method parameter can be maxIntens or minDis')
-                    end
+                    [~,I] = max(tmpIntens);
                     mzList(m) = tmpMZ(I);
                 else
                     mzList(m) = nan;
@@ -193,7 +184,7 @@ classdef ThermoMSRaw < handle
             mzList = mzList(~isnan(mzList));
             if isempty(mzList)
                 fprintf(1,'Query mz: %.4f failed\n',mean(r));
-                res = -1;
+                res = [];
                 return;
             end
             [mzs,~,ia] = unique(mzList);

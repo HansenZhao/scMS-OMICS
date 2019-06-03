@@ -120,6 +120,10 @@ classdef ThermoClustering < handle
             end
         end
         
+        function norByRange(obj,n,r)
+            cellfun(@(x)x.norByRange(r),obj.msObj(n),'UniformOutput',0);
+        end
+        
         function show(obj,wd)
             if ~exist('wd','var')
                 wd = 100;
@@ -197,7 +201,10 @@ classdef ThermoClustering < handle
         end
         
         function delSCRes(obj,n)
-            obj.toCellRes{n} = {};
+            L = length(n);
+            for m = 1:L
+                obj.toCellRes{n(m)} = {};
+            end
         end
         
         function setReferMZ(obj,r)
@@ -210,6 +217,10 @@ classdef ThermoClustering < handle
         
         function r = nPeaks(obj)
             r = cellfun(@(x)length(x.mzList),obj.msObj);
+        end
+        
+        function setResolution(obj,r)
+            obj.resolution = r;
         end
     end
     
@@ -229,12 +240,12 @@ classdef ThermoClustering < handle
                 end
             end           
         end
-        function [hf,mzUsed] = procTSNE(clusterRes,range,varargin)
+        function [xy,mat,mzUsed] = procTSNE(clusterRes,range,isNor,varargin)
             % procTSNE(clusterRes,[]) equal to procTSNE(clusterRes,[],'all',-1)
             % procTSNE(clusterRes,[],'any',0.2)
             % procTSNE(clusterRes,[],'all',0.2)
             % procTSNE(clusterRes,[300,500],'all',0.2);
-            if nargin < 3
+            if nargin < 4
                 comd = 'all';
                 thres = -1;
             else
@@ -278,21 +289,30 @@ classdef ThermoClustering < handle
                 return;
             end
             mzUsed = clusterRes.mz(I);
-            xy = tsne(mat./max(mat,[],2));
+            mat = mat(:,I);
+            xy = tsne(mat./1);
+            if isNor
+                mat = mat./max(mat,[],2);
+                xy = tsne(mat);
+            end
+            
             h = gscatter(xy(:,1),xy(:,2),tag);
+            
             for m = 1:L
                 h(m).DisplayName = sNames{m};
             end
             xticks([]); yticks([]); xlabel('t-SNE Dim 1'); ylabel('t-SNE Dim 2');
             title(clusterCoeff(xy,tag,0));
         end
-        function mzDiffSignif(clusterRes,globalFilterFunc,pairFilterFunc,groupFilterFunc)  
+        function mzDiffSignif(clusterRes,isNor,globalFilterFunc,pairFilterFunc,groupFilterFunc)  
             %ThermoClustering.mzDiffSignif(r,@(x)sum(x>0,2)>2,@(x)sum(x>0.2,2)>1,@(x)x>0);
             occIndex = ThermoClustering.calCellOccIndex(clusterRes);
 %             clusterRes.mat = clusterRes.mat./max(clusterRes.mat,[],2);
             occIndex(:,1) = [];
             I = globalFilterFunc(occIndex);
-            clusterRes.mat = clusterRes.mat./max(clusterRes.mat(:,I),[],2);
+            if isNor
+                clusterRes.mat = clusterRes.mat./max(clusterRes.mat(:,I),[],2);
+            end
             fprintf(1,'Global filter: %d/%d\n',sum(I),length(clusterRes.mz));
             nTag = length(unique(clusterRes.tag));
             for m = 1:(nTag-1)
@@ -331,12 +351,27 @@ classdef ThermoClustering < handle
             t = readtable(strcat(fp,fn));
             x = log2(t.mMean./t.nMean);
             y = t.logPValue;
-            figure('Position',[0,0,600,600]);
-            scatter(x,y,20,'filled');
+            x1 = x(and(x<-1,y>1.30103));
+			x2 = x(and(x>1,y>1.30103));
+			y1 = y(and(x<-1,y>1.30103));
+			y2 = y(and(x>1,y>1.30103))
+            figure('Position',[0,0,800,700]);
+            scatter(x,y,60,[0.86,0.86,0.86],'filled');
+			hold on
+			scatter(x1,y1,60,[0,0.45,0.74],'filled');
+			hold on
+			scatter(x2,y2,60,[0.85,0.33,0.1],'filled');
+			line([min(x)-1,max(x)+5],[1.30103,1.30103],'linewidth',2,'color',[0.49,0.49,0.49],'linestyle',':');
+			line([-1,-1],[0,max(y)],'linewidth',2,'color',[0.49,0.49,0.49],'linestyle',':');
+            line([1,1],[0,max(y)],'linewidth',2,'color',[0.49,0.49,0.49],'linestyle',':');
+					
             xlim([-1,1]*max(abs(x))); ylim([0,max(y)]); 
             xlabel('log_2FC'); ylabel('-log_{10}(P)');
-            title(fn); box on;
-            figure('Position',[0,0,600,600]);
+            %title(fn);
+            box on;
+            set(gca,'FontSize',18,'Fontwei','Bold','Linewidth',2)
+
+            figure('Position',[0,0,700,700]);
             text(x,y,num2str(t.mz));
             xlim([-1,1]*max(abs(x))); ylim([0,max(y)]); 
             xlabel('log_2FC'); ylabel('-log_{10}(P)');
